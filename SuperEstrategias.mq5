@@ -571,7 +571,8 @@ bool LoadNewsFromCommonFiles(const string fileName)
     if(first)
     {
       string head = Trim(parts[0]);
-      string lower = StringToLower(head);
+      string lower = head;
+      StringToLower(lower);
       if(StringFind(lower, "date")!=-1){ first=false; continue; }
     }
     first=false;
@@ -585,7 +586,9 @@ bool LoadNewsFromCommonFiles(const string fileName)
     string dtStr = dateStr + " " + timeStr;
     datetime when = StringToTime(dtStr);
     if(when==0) continue;
-    if(StringCompare(StringToLower(imp),"high")!=0) continue;
+    string impLower = imp;
+    StringToLower(impLower);
+    if(StringCompare(impLower,"high")!=0) continue;
 
     gNews[gNewsCount].when = when;
     gNews[gNewsCount].currency = curr;
@@ -621,26 +624,19 @@ bool HasOpenPositions(const string symbol, int &count, bool &allProtected)
 {
   count = 0;
   allProtected = true;
-  int total = (int)PositionsTotal();
-  for(int i=0;i<total;i++)
+  if(PositionSelect(symbol))
   {
-    if(!PositionSelectByIndex(i)) continue;
-    string sym = PositionGetString(POSITION_SYMBOL);
-    if(sym==symbol)
+    count = 1;
+    double sl = PositionGetDouble(POSITION_SL);
+    double price = PositionGetDouble(POSITION_PRICE_OPEN);
+    long type = PositionGetInteger(POSITION_TYPE);
+    if(type==POSITION_TYPE_BUY)
     {
-      count++;
-      double sl = PositionGetDouble(POSITION_SL);
-      double price = PositionGetDouble(POSITION_PRICE_OPEN);
-      long type = PositionGetInteger(POSITION_TYPE);
-      // protegido si SL está al menos en BE
-      if(type==POSITION_TYPE_BUY)
-      {
-        if(sl < price && sl!=0.0) allProtected=false;
-      }
-      else if(type==POSITION_TYPE_SELL)
-      {
-        if(sl > price && sl!=0.0) allProtected=false;
-      }
+      if(sl < price && sl!=0.0) allProtected=false;
+    }
+    else if(type==POSITION_TYPE_SELL)
+    {
+      if(sl > price && sl!=0.0) allProtected=false;
     }
   }
   return (count>0);
@@ -685,11 +681,7 @@ bool PlaceOrder(const string symbol, int dir, double atr)
 
 void ManagePositionTrailingAndTP(const string symbol)
 {
-  int total = (int)PositionsTotal();
-  for(int i=0;i<total;i++)
-  {
-    if(!PositionSelectByIndex(i)) continue;
-    if(PositionGetString(POSITION_SYMBOL)!=symbol) continue;
+  if(!PositionSelect(symbol)) return;
 
     long type = PositionGetInteger(POSITION_TYPE);
     double open = PositionGetDouble(POSITION_PRICE_OPEN);
