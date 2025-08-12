@@ -6,6 +6,19 @@
 #property version     "1.01"
 #property strict
 
+/*
+EA "Súper Estrategias" - Resumen de características
+- Multi-par desde un solo gráfico: gestiona ~20 pares definidos en InpSymbolsCsv (deben estar en Observación del Mercado).
+- Señales en H1 y entradas en M5: opera en la misma dirección de la temporalidad mayor.
+- Gestión de riesgo y salida: SL/TP inicial dinámicos por ATR, Break Even y Trailing Stop por símbolo, TP que se empuja a favor de la tendencia H1.
+- Control de exposición: una sola operación por símbolo (configurable); nuevas entradas solo cuando las existentes estén protegidas (BE/TS).
+- Filtros de ejecución: sesiones (Asia/Londres/NY), spread máximo y filtro de noticias leyendo el archivo InpNewsFileName en Common Files; evita operar ±InpNewsMinutesBuffer minutos.
+- Patrones y estructura: velas (Engulfing, Hammer/Shooting Star, Morning/Evening Star, Tweezer, Inside Bar, Three White Soldiers/Black Crows),
+  estructuras (Doble/Triple Techo-Suelo, Hombro-Cabeza-Hombro e Invertido, Rectángulo), y adicionales (Bandera, Triángulos Asc/Desc/Simétrico, Canal Tendencial).
+- Confirmaciones: proximidad a zonas S/R por swings y divergencias RSI; alineación con tendencia mayor (EMA H1).
+- Parametrización: lotaje inicial, MagicNumber, timeframes de señal/entrada y ATR, sesiones, filtro de noticias, spread, y frecuencia de evaluación por temporizador.
+*/
+
 #include <Trade/Trade.mqh>
 
 // ============================== Inputs ===============================
