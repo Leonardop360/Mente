@@ -571,9 +571,7 @@ bool LoadNewsFromCommonFiles(const string fileName)
     if(first)
     {
       string head = Trim(parts[0]);
-      string lower = head;
-      StringToLower(lower);
-      if(StringFind(lower, "date")!=-1){ first=false; continue; }
+      if(StringCompare(head,"Date",false)==0){ first=false; continue; }
     }
     first=false;
 
@@ -586,9 +584,7 @@ bool LoadNewsFromCommonFiles(const string fileName)
     string dtStr = dateStr + " " + timeStr;
     datetime when = StringToTime(dtStr);
     if(when==0) continue;
-    string impLower = imp;
-    StringToLower(impLower);
-    if(StringCompare(impLower,"high")!=0) continue;
+    if(StringCompare(imp,"High",false)!=0) continue;
 
     gNews[gNewsCount].when = when;
     gNews[gNewsCount].currency = curr;
