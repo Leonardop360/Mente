@@ -455,9 +455,185 @@ int DetectRectangleRangeBreakout(const string symbol, ENUM_TIMEFRAMES tf, string
   outName=""; return DIR_NONE;
 }
 
+// NUEVO: Triple Suelo / Triple Techo
+int DetectTripleTopBottom(const string symbol, ENUM_TIMEFRAMES tf, string &outName)
+{
+  double h[], l[], c[];
+  if(CopyHigh(symbol, tf, 0, 300, h)<150) return DIR_NONE;
+  if(CopyLow(symbol, tf, 0, 300, l)<150) return DIR_NONE;
+  if(CopyClose(symbol, tf, 0, 300, c)<150) return DIR_NONE;
+  ArraySetAsSeries(h,true); ArraySetAsSeries(l,true); ArraySetAsSeries(c,true);
+
+  // Recolectar 6 pivotes recientes como máximo
+  int peaks[6]; ArrayInitialize(peaks,-1); int pc=0;
+  int troughs[6]; ArrayInitialize(troughs,-1); int tc=0;
+
+  for(int i=5; i<140 && pc<6; i++)
+  {
+    if(h[i]>h[i+1] && h[i]>h[i-1]) peaks[pc++]=i;
+  }
+  for(int i=5; i<140 && tc<6; i++)
+  {
+    if(l[i]<l[i+1] && l[i]<l[i-1]) troughs[tc++]=i;
+  }
+
+  // Triple Techo: usar los 3 primeros picos
+  if(pc>=3)
+  {
+    int p1=peaks[0], p2=peaks[1], p3=peaks[2];
+    double maxH = MathMax(h[p1], MathMax(h[p2], h[p3]));
+    double minH = MathMin(h[p1], MathMin(h[p2], h[p3]));
+    double tol = maxH * 0.0015; // ~0.15%
+    if((maxH-minH) <= tol && MathAbs(p1-p2)>3 && MathAbs(p2-p3)>3)
+    {
+      // neckline = mínimo entre primeros dos valles posteriores a p1,p2
+      double neckline = DBL_MAX;
+      // buscar valles entre p1..p3
+      for(int i=p3; i<=p1; i++)
+      {
+        if(i>=2 && l[i]<l[i+1] && l[i]<l[i-1]) neckline = MathMin(neckline, l[i]);
+      }
+      if(neckline<DBL_MAX)
+      {
+        double lastClose = c[1];
+        if(lastClose < neckline){ outName="Triple Techo - Ruptura"; return DIR_SELL; }
+      }
+    }
+  }
+
+  // Triple Suelo: usar los 3 primeros valles
+  if(tc>=3)
+  {
+    int t1=troughs[0], t2=troughs[1], t3=troughs[2];
+    double maxL = MathMax(l[t1], MathMax(l[t2], l[t3]));
+    double minL = MathMin(l[t1], MathMin(l[t2], l[t3]));
+    double tol2 = maxL * 0.0015;
+    if((maxL-minL) <= tol2 && MathAbs(t1-t2)>3 && MathAbs(t2-t3)>3)
+    {
+      double resistance = -DBL_MAX;
+      for(int i=t3; i<=t1; i++)
+      {
+        if(i>=2 && h[i]>h[i+1] && h[i]>h[i-1]) resistance = MathMax(resistance, h[i]);
+      }
+      if(resistance>-DBL_MAX)
+      {
+        double lastClose = c[1];
+        if(lastClose > resistance){ outName="Triple Suelo - Ruptura"; return DIR_BUY; }
+      }
+    }
+  }
+
+  outName="";
+  return DIR_NONE;
+}
+
 // Placeholders ampliables para otros patrones (Bandera, Triángulos, Canal Tendencial)
 int DetectFlagTriangleChannel(const string symbol, ENUM_TIMEFRAMES tf, string &outName)
 {
+  double h[], l[], c[];
+  if(CopyHigh(symbol, tf, 0, 200, h)<120) return DIR_NONE;
+  if(CopyLow(symbol, tf, 0, 200, l)<120) return DIR_NONE;
+  if(CopyClose(symbol, tf, 0, 200, c)<120) return DIR_NONE;
+  ArraySetAsSeries(h,true); ArraySetAsSeries(l,true); ArraySetAsSeries(c,true);
+
+  double atr = GetATR(symbol, tf, InpAtrPeriod, 1);
+  if(atr<=0) { outName=""; return DIR_NONE; }
+  double lastClose = c[1];
+
+  // Recolectar pivotes recientes
+  int peaks[6]; ArrayInitialize(peaks,-1); int pc=0;
+  int troughs[6]; ArrayInitialize(troughs,-1); int tc=0;
+  for(int i=5; i<120 && pc<6; i++) if(h[i]>h[i+1] && h[i]>h[i-1]) peaks[pc++]=i;
+  for(int i=5; i<120 && tc<6; i++) if(l[i]<l[i+1] && l[i]<l[i-1]) troughs[tc++]=i;
+
+  // Triángulo Ascendente: techos planos y mínimos ascendentes + ruptura
+  if(pc>=2 && tc>=3)
+  {
+    double flatHighTol = MathMax(h[peaks[0]], h[peaks[1]])*0.0015;
+    bool flatHigh = MathAbs(h[peaks[0]] - h[peaks[1]]) <= flatHighTol;
+    bool risingLows = (l[troughs[2]]>l[troughs[1]] && l[troughs[1]]>l[troughs[0]]);
+    double resistance = MathMax(h[peaks[0]], h[peaks[1]]);
+    if(flatHigh && risingLows && lastClose > resistance)
+    {
+      outName = "Triángulo Ascendente - Ruptura Alcista";
+      return DIR_BUY;
+    }
+  }
+
+  // Triángulo Descendente: suelos planos y máximos descendentes + ruptura
+  if(tc>=2 && pc>=3)
+  {
+    double flatLowTol = MathMax(l[troughs[0]], l[troughs[1]])*0.0015;
+    bool flatLow = MathAbs(l[troughs[0]] - l[troughs[1]]) <= flatLowTol;
+    bool fallingHighs = (h[peaks[2]]<h[peaks[1]] && h[peaks[1]]<h[peaks[0]]);
+    double support = MathMin(l[troughs[0]], l[troughs[1]]);
+    if(flatLow && fallingHighs && lastClose < support)
+    {
+      outName = "Triángulo Descendente - Ruptura Bajista";
+      return DIR_SELL;
+    }
+  }
+
+  // Triángulo Simétrico: máximos descendentes y mínimos ascendentes + ruptura
+  if(pc>=2 && tc>=2)
+  {
+    bool fallingHighs = (h[peaks[1]]<h[peaks[0]]);
+    bool risingLows   = (l[troughs[1]]>l[troughs[0]]);
+    double recentHigh = MathMax(h[peaks[0]], h[peaks[1]]);
+    double recentLow  = MathMin(l[troughs[0]], l[troughs[1]]);
+    if(fallingHighs && risingLows)
+    {
+      if(lastClose > recentHigh){ outName="Triángulo Simétrico - Ruptura Alcista"; return DIR_BUY; }
+      if(lastClose < recentLow){ outName="Triángulo Simétrico - Ruptura Bajista"; return DIR_SELL; }
+    }
+  }
+
+  // Bandera (Flag): impulso fuerte + consolidación en canal pequeño y ruptura a favor del impulso
+  // Medimos impulso en últimas 20->5 barras, y consolidación 5-10 barras
+  double impulseUp = c[5] - c[20];
+  double impulseDn = c[20] - c[5];
+  double maxLast10= -DBL_MAX, minLast10= DBL_MAX;
+  for(int i=1;i<=10;i++){ maxLast10=MathMax(maxLast10,h[i]); minLast10=MathMin(minLast10,l[i]); }
+  double height10 = maxLast10 - minLast10;
+
+  // Bandera alcista
+  if(impulseUp > 2.0*atr)
+  {
+    bool pullbackChannel = (h[1] < h[5] && l[1] < l[5] && height10 < 1.8*atr);
+    if(pullbackChannel && lastClose > maxLast10)
+    {
+      outName = "Bandera Alcista - Ruptura";
+      return DIR_BUY;
+    }
+  }
+  // Bandera bajista
+  if(impulseDn > 2.0*atr)
+  {
+    bool pullupChannel = (h[1] > h[5] && l[1] > l[5] && height10 < 1.8*atr);
+    if(pullupChannel && lastClose < minLast10)
+    {
+      outName = "Bandera Bajista - Ruptura";
+      return DIR_SELL;
+    }
+  }
+
+  // Canal Tendencial: ambos, máximos y mínimos, avanzan en misma dirección
+  // Usar última decena de barras para inferir dirección y ruptura
+  bool risingChannel = (h[1]>h[10] && l[1]>l[10]);
+  bool fallingChannel = (h[1]<h[10] && l[1]<l[10]);
+  double maxLast5= -DBL_MAX, minLast5= DBL_MAX;
+  for(int i=1;i<=5;i++){ maxLast5=MathMax(maxLast5,h[i]); minLast5=MathMin(minLast5,l[i]); }
+  if(risingChannel && lastClose > maxLast5)
+  {
+    outName = "Canal Tendencial - Ruptura Alcista";
+    return DIR_BUY;
+  }
+  if(fallingChannel && lastClose < minLast5)
+  {
+    outName = "Canal Tendencial - Ruptura Bajista";
+    return DIR_SELL;
+  }
+
   outName="";
   return DIR_NONE;
 }
@@ -772,6 +948,14 @@ int DetectAnySignalH1(const string symbol, string &why)
   {
     why = "Estructura: " + name;
     return dir2;
+  }
+
+  // NUEVO: Triple Top/Bottom
+  int dir2b = DetectTripleTopBottom(symbol, InpSignalTimeframe, name);
+  if(dir2b!=DIR_NONE)
+  {
+    why = "Estructura: " + name;
+    return dir2b;
   }
 
   int dir3 = DetectHeadAndShoulders(symbol, InpSignalTimeframe, name);
