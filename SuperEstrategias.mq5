@@ -679,65 +679,64 @@ void ManagePositionTrailingAndTP(const string symbol)
 {
   if(!PositionSelect(symbol)) return;
 
-    long type = PositionGetInteger(POSITION_TYPE);
-    double open = PositionGetDouble(POSITION_PRICE_OPEN);
-    double sl   = PositionGetDouble(POSITION_SL);
-    double tp   = PositionGetDouble(POSITION_TP);
-    double price = (type==POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
-    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
-    double atr = GetATR(symbol, InpAtrTf, InpAtrPeriod, 0);
-    if(atr<=0) continue;
+  long type = PositionGetInteger(POSITION_TYPE);
+  double open = PositionGetDouble(POSITION_PRICE_OPEN);
+  double sl   = PositionGetDouble(POSITION_SL);
+  double tp   = PositionGetDouble(POSITION_TP);
+  double price = (type==POSITION_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
+  int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+  double atr = GetATR(symbol, InpAtrTf, InpAtrPeriod, 0);
+  if(atr<=0) return;
 
-    // Break Even
-    if(InpUseBreakEven)
+  // Break Even
+  if(InpUseBreakEven)
+  {
+    double beTrigger = atr * InpBE_ATR_Mult;
+    if(type==POSITION_TYPE_BUY)
     {
-      double beTrigger = atr * InpBE_ATR_Mult;
-      if(type==POSITION_TYPE_BUY)
+      if(price - open >= beTrigger)
       {
-        if(price - open >= beTrigger)
-        {
-          double newSL = MathMax(sl, NormalizeDouble(open + InpBE_OffsetPoints*SymbolInfoDouble(symbol, SYMBOL_POINT), digits));
-          if(newSL > sl) trade.PositionModify(symbol, newSL, tp);
-        }
-      }
-      else
-      {
-        if(open - price >= beTrigger)
-        {
-          double newSL = MathMin(sl, NormalizeDouble(open - InpBE_OffsetPoints*SymbolInfoDouble(symbol, SYMBOL_POINT), digits));
-          if(newSL < sl || sl==0.0) trade.PositionModify(symbol, newSL, tp);
-        }
+        double newSL = MathMax(sl, NormalizeDouble(open + InpBE_OffsetPoints*SymbolInfoDouble(symbol, SYMBOL_POINT), digits));
+        if(newSL > sl) trade.PositionModify(symbol, newSL, tp);
       }
     }
+    else
+    {
+      if(open - price >= beTrigger)
+      {
+        double newSL = MathMin(sl, NormalizeDouble(open - InpBE_OffsetPoints*SymbolInfoDouble(symbol, SYMBOL_POINT), digits));
+        if(newSL < sl || sl==0.0) trade.PositionModify(symbol, newSL, tp);
+      }
+    }
+  }
 
-    // Trailing Stop por ATR
-    if(InpUseTrailingStop)
+  // Trailing Stop por ATR
+  if(InpUseTrailingStop)
+  {
+    double tsDist = atr * InpTS_ATR_Mult;
+    if(type==POSITION_TYPE_BUY)
     {
-      double tsDist = atr * InpTS_ATR_Mult;
-      if(type==POSITION_TYPE_BUY)
-      {
-        double desiredSL = NormalizeDouble(price - tsDist, digits);
-        if(desiredSL > sl) trade.PositionModify(symbol, desiredSL, tp);
-      }
-      else
-      {
-        double desiredSL = NormalizeDouble(price + tsDist, digits);
-        if(sl==0.0 || desiredSL < sl) trade.PositionModify(symbol, desiredSL, tp);
-      }
+      double desiredSL = NormalizeDouble(price - tsDist, digits);
+      if(desiredSL > sl) trade.PositionModify(symbol, desiredSL, tp);
     }
+    else
+    {
+      double desiredSL = NormalizeDouble(price + tsDist, digits);
+      if(sl==0.0 || desiredSL < sl) trade.PositionModify(symbol, desiredSL, tp);
+    }
+  }
 
-    // Empujar TP con tendencia mayor
-    int trend = GetTrendDirectionH1(symbol);
-    if(trend==DIR_BUY && type==POSITION_TYPE_BUY)
-    {
-      double desiredTP = NormalizeDouble(price + atr*InpTP_ATR_Mult, digits);
-      if(desiredTP > tp || tp==0.0) trade.PositionModify(symbol, sl, desiredTP);
-    }
-    else if(trend==DIR_SELL && type==POSITION_TYPE_SELL)
-    {
-      double desiredTP = NormalizeDouble(price - atr*InpTP_ATR_Mult, digits);
-      if(tp==0.0 || desiredTP < tp) trade.PositionModify(symbol, sl, desiredTP);
-    }
+  // Empujar TP con tendencia mayor
+  int trend = GetTrendDirectionH1(symbol);
+  if(trend==DIR_BUY && type==POSITION_TYPE_BUY)
+  {
+    double desiredTP = NormalizeDouble(price + atr*InpTP_ATR_Mult, digits);
+    if(desiredTP > tp || tp==0.0) trade.PositionModify(symbol, sl, desiredTP);
+  }
+  else if(trend==DIR_SELL && type==POSITION_TYPE_SELL)
+  {
+    double desiredTP = NormalizeDouble(price - atr*InpTP_ATR_Mult, digits);
+    if(tp==0.0 || desiredTP < tp) trade.PositionModify(symbol, sl, desiredTP);
   }
 }
 
