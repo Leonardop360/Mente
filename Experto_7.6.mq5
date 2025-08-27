@@ -2041,7 +2041,7 @@ void UpdateVolumeThresholds() {
 
 // NUEVO: utilidad de conversión horaria robusta (a estructura local)
 void ToLocalStruct(const datetime t, MqlDateTime &outTm) {
-    const datetime local = t + (TimeZoneOffsetHours * 3600);
+    const datetime local = (datetime)((long)t + (long)TimeZoneOffsetHours * 3600);
     TimeToStruct(local, outTm);
 }
 
