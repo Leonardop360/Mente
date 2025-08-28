@@ -1419,6 +1419,14 @@ void OpenPosition(string symbol, int direction) {
         Print("BLOQUEO ESTRICTO: Intento de abrir en contra de tendencia H1 en ", symbol, ". Operación cancelada.");
         return;
     }
+    // Verificación adicional: pendiente EMA20 debe confirmar la tendencia de H1
+    double slope = GetEMASlope(symbol, 20, 1);
+    double min_slope = GetMinEMASlope(symbol);
+    if ((direction == 1 && (!h1BullNow || slope <= min_slope)) ||
+        (direction == -1 && (h1BullNow || slope >= -min_slope))) {
+        Print("BLOQUEO ESTRICTO: Pendiente EMA20 no confirma tendencia H1 en ", symbol, ". Operación cancelada.");
+        return;
+    }
     
     bool isHighVolSymbol = (symbol == "USDMXN" || symbol == "USDZAR" || symbol == "GBPJPY" ||
                             symbol == "NZDJPY" || symbol == "XAUUSD" || symbol == "EURTRY");
