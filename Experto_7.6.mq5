@@ -656,17 +656,15 @@ double GetRSI(string symbol) {
     if (idx >= 0 && indCache[idx].rsi_m5 == INVALID_HANDLE) indCache[idx].rsi_m5 = iRSI(symbol, TimeFrame_Main, RSIPeriod, PRICE_CLOSE);
     int handle = (idx >= 0 ? indCache[idx].rsi_m5 : iRSI(symbol, TimeFrame_Main, RSIPeriod, PRICE_CLOSE));
     if (handle == INVALID_HANDLE) {
-        lastErrorMessage = "ERROR: Could not create RSI handle for " + symbol + ". EA stopped.";
+        lastErrorMessage = "WARN: Could not create RSI handle for " + symbol + ".";
         Print(lastErrorMessage);
-        criticalError = true;
         return 50.0;
     }
     if (idx >= 0 && tickBuf[idx].has_rsi) return tickBuf[idx].rsi;
     double buffer[];
     if (CopyBuffer(handle, 0, 0, 1, buffer) <= 0) {
-        lastErrorMessage = "ERROR: Could not get RSI data for " + symbol + ". EA stopped.";
+        lastErrorMessage = "WARN: Could not get RSI data for " + symbol + ".";
         Print(lastErrorMessage);
-        criticalError = true;
         return 50.0;
     }
     if (idx >= 0) { tickBuf[idx].has_rsi = true; tickBuf[idx].rsi = buffer[0]; }
@@ -679,9 +677,8 @@ int CheckMACDSignal(string symbol) {
     if (idx >= 0 && indCache[idx].macd_m5 == INVALID_HANDLE) indCache[idx].macd_m5 = iMACD(symbol, TimeFrame_Main, MACDFastEMA, MACDSlowEMA, MACDSignalSMA, PRICE_CLOSE);
     int handle = (idx >= 0 ? indCache[idx].macd_m5 : iMACD(symbol, TimeFrame_Main, MACDFastEMA, MACDSlowEMA, MACDSignalSMA, PRICE_CLOSE));
     if (handle == INVALID_HANDLE) {
-        lastErrorMessage = "ERROR: Could not create MACD handle for " + symbol + ". EA stopped.";
+        lastErrorMessage = "WARN: Could not create MACD handle for " + symbol + ".";
         Print(lastErrorMessage);
-        criticalError = true;
         return 0;
     }
     if (idx >= 0 && tickBuf[idx].has_macd_sig) {
@@ -691,9 +688,8 @@ int CheckMACDSignal(string symbol) {
     }
     double macd[], signal[];
     if (CopyBuffer(handle, 0, 0, 1, macd) <= 0 || CopyBuffer(handle, 1, 0, 1, signal) <= 0) {
-        lastErrorMessage = "ERROR: Could not get MACD data for " + symbol + ". EA stopped.";
+        lastErrorMessage = "WARN: Could not get MACD data for " + symbol + ".";
         Print(lastErrorMessage);
-        criticalError = true;
         return 0;
     }
     if (idx >= 0) { tickBuf[idx].has_macd_sig = true; tickBuf[idx].macd = macd[0]; tickBuf[idx].macd_signal = signal[0]; }
@@ -740,17 +736,15 @@ double GetATR(string symbol) {
     if (idx >= 0 && indCache[idx].atr_h1 == INVALID_HANDLE) indCache[idx].atr_h1 = iATR(symbol, TimeFrame_H1, 14);
     int handle = (idx >= 0 ? indCache[idx].atr_h1 : iATR(symbol, TimeFrame_H1, 14));
     if (handle == INVALID_HANDLE) {
-        lastErrorMessage = "ERROR: Could not create ATR handle for " + symbol + ". EA stopped.";
+        lastErrorMessage = "WARN: Could not create ATR handle for " + symbol + ".";
         Print(lastErrorMessage);
-        criticalError = true;
         return 0.0;
     }
     if (idx >= 0 && tickBuf[idx].has_atr_h1) return tickBuf[idx].atr_h1;
     double buffer[];
     if (CopyBuffer(handle, 0, 0, 1, buffer) <= 0) {
-        lastErrorMessage = "ERROR: Could not get ATR data for " + symbol + ". EA stopped.";
+        lastErrorMessage = "WARN: Could not get ATR data for " + symbol + ".";
         Print(lastErrorMessage);
-        criticalError = true;
         return 0.0;
     }
     if (idx >= 0) { tickBuf[idx].has_atr_h1 = true; tickBuf[idx].atr_h1 = buffer[0]; }
@@ -763,17 +757,15 @@ double GetATRM5(string symbol) {
     if (idx >= 0 && indCache[idx].atr_m5 == INVALID_HANDLE) indCache[idx].atr_m5 = iATR(symbol, TimeFrame_Main, 14);
     int handle = (idx >= 0 ? indCache[idx].atr_m5 : iATR(symbol, TimeFrame_Main, 14));
     if (handle == INVALID_HANDLE) {
-        lastErrorMessage = "ERROR: Could not create ATR M5 handle for " + symbol + ". EA stopped.";
+        lastErrorMessage = "WARN: Could not create ATR M5 handle for " + symbol + ".";
         Print(lastErrorMessage);
-        criticalError = true;
         return 0.0;
     }
     if (idx >= 0 && tickBuf[idx].has_atr_m5) return tickBuf[idx].atr_m5;
     double buffer[];
     if (CopyBuffer(handle, 0, 0, 1, buffer) <= 0) {
-        lastErrorMessage = "ERROR: Could not get ATR M5 data for " + symbol + ". EA stopped.";
+        lastErrorMessage = "WARN: Could not get ATR M5 data for " + symbol + ".";
         Print(lastErrorMessage);
-        criticalError = true;
         return 0.0;
     }
     if (idx >= 0) { tickBuf[idx].has_atr_m5 = true; tickBuf[idx].atr_m5 = buffer[0]; }
@@ -1733,16 +1725,15 @@ double GetEMASlope(string symbol, int period, int bars) {
                  ? indCache[idx].ema20_h1
                  : iMA(symbol, TimeFrame_H1, period, 0, MODE_EMA, PRICE_CLOSE);
     if (handle == INVALID_HANDLE) {
-        lastErrorMessage = "ERROR: Could not create EMA handle for " + symbol + ". EA stopped.";
+        lastErrorMessage = "WARN: Could not create EMA handle for " + symbol + ".";
         Print(lastErrorMessage);
-        criticalError = true;
         return 0.0;
     }
+    if (Bars(symbol, TimeFrame_H1) < bars + 1) return 0.0;
     double ema[];
     if (CopyBuffer(handle, 0, 0, bars + 1, ema) < bars + 1) {
-        lastErrorMessage = "ERROR: Could not get EMA data for " + symbol + ". EA stopped.";
+        lastErrorMessage = "WARN: Could not get EMA data for " + symbol + ".";
         Print(lastErrorMessage);
-        criticalError = true;
         return 0.0;
     }
     // Devolver delta en unidades de precio (no dividir por point)
