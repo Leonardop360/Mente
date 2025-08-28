@@ -1757,9 +1757,8 @@ bool AreAllDataAvailable(string symbol) {
     double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
     double atr = GetATR(symbol);
     if (bid == 0.0 || ask == 0.0 || point == 0.0 || atr == 0.0) {
-        lastErrorMessage = "ERROR: Market data not available for " + symbol + ". EA stopped.";
+        lastErrorMessage = "ERROR: Market data not available for " + symbol + ".";
         Print(lastErrorMessage);
-        criticalError = true;
         return false;
     }
     return true;
