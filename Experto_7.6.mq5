@@ -597,7 +597,8 @@ bool EnsureSeriesReady(string symbol, ENUM_TIMEFRAMES tf, int minBars, int maxWa
     int waited = 0;
     int step = 50; // ms
     while (iBars(symbol, tf) < minBars && waited < maxWaitMs) {
-        RefreshRates();
+        MqlRates rr[];
+        CopyRates(symbol, tf, 0, 1, rr);
         Sleep(step);
         waited += step;
     }
