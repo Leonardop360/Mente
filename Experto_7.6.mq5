@@ -1396,6 +1396,29 @@ void OpenPosition(string symbol, int direction) {
         criticalError = true;
         return;
     }
+
+    // Guardia dura: nunca abrir contra la tendencia H1 (solo relación EMA20 vs EMA50, sin pendiente)
+    int ema20_handle_guard = iMA(symbol, TimeFrame_H1, 20, 0, MODE_EMA, PRICE_CLOSE);
+    int ema50_handle_guard = iMA(symbol, TimeFrame_H1, 50, 0, MODE_EMA, PRICE_CLOSE);
+    if (ema20_handle_guard == INVALID_HANDLE || ema50_handle_guard == INVALID_HANDLE) {
+        Print("ADVERTENCIA: No se pudo crear handle EMA para validación de tendencia H1 en ", symbol, ". Operación abortada.");
+        if (ema20_handle_guard != INVALID_HANDLE) IndicatorRelease(ema20_handle_guard);
+        if (ema50_handle_guard != INVALID_HANDLE) IndicatorRelease(ema50_handle_guard);
+        return;
+    }
+    double ema20_guard[], ema50_guard[];
+    bool guard_ok = (CopyBuffer(ema20_handle_guard, 0, 0, 1, ema20_guard) == 1 && CopyBuffer(ema50_handle_guard, 0, 0, 1, ema50_guard) == 1);
+    IndicatorRelease(ema20_handle_guard);
+    IndicatorRelease(ema50_handle_guard);
+    if (!guard_ok) {
+        Print("ADVERTENCIA: No se pudieron obtener EMAs H1 para validación de tendencia en ", symbol, ". Operación abortada.");
+        return;
+    }
+    bool h1BullNow = (ema20_guard[0] > ema50_guard[0]);
+    if ((direction == 1 && !h1BullNow) || (direction == -1 && h1BullNow)) {
+        Print("BLOQUEO ESTRICTO: Intento de abrir en contra de tendencia H1 en ", symbol, ". Operación cancelada.");
+        return;
+    }
     
     bool isHighVolSymbol = (symbol == "USDMXN" || symbol == "USDZAR" || symbol == "GBPJPY" ||
                             symbol == "NZDJPY" || symbol == "XAUUSD" || symbol == "EURTRY");
@@ -1864,49 +1887,42 @@ void CheckAndClosePositionsOnEMACross(string symbol) {
             if (ticket == 0) continue;
             if (m_position_info.SelectByTicket(ticket) && m_position_info.Symbol() == symbol) {
                 long type = m_position_info.PositionType();
-                bool shouldClose = (ema20_above_ema50_current && type == POSITION_TYPE_SELL) ||
-                                   (!ema20_above_ema50_current && type == POSITION_TYPE_BUY);
-                if (shouldClose) {
-                    double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
-                    double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
-                    if (bid == 0.0 || ask == 0.0) {
-                        if (i < 100 && retryCount[i] < 5) {
-                            retryCount[i]++;
-                            Print("Retraso cierre: Precios no disponibles. Reintento ", IntegerToString(retryCount[i]));
-                            return;
-                        } else {
-                            Print("Fallo permanente: Precios no disponibles tras 5 reintentos.");
-                            continue;
-                        }
-                    }
-                    if (trade.PositionClose(ticket)) {
-                        Print("Posición cerrada por cambio de dirección de EMAs en H1: ", symbol, 
-                              ", Ticket: ", StringFormat("%I64u", ticket), 
-                              ", Tipo: ", (type == POSITION_TYPE_BUY ? "Compra" : "Venta"),
-                              ", Razón: ", (ema20_above_ema50_current ? "EMA20 > EMA50 (Tendencia Alcista)" : "EMA20 < EMA50 (Tendencia Bajista)"));
-                        double closePrice = (type == POSITION_TYPE_BUY) ? bid : ask;
-                        LogTrade(TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES | TIME_SECONDS),
-                                 symbol,
-                                 (type == POSITION_TYPE_BUY ? "BuyClose" : "SellClose"),
-                                 DoubleToString(closePrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)),
-                                 DoubleToString(m_position_info.Volume(), 2),
-                                 DoubleToString(m_position_info.StopLoss(), (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)),
-                                 DoubleToString(m_position_info.TakeProfit(), (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)),
-                                 (ema20_above_ema50_current ? "EMA20>EMA50 Close" : "EMA20<EMA50 Close"));
-                        if (i < 100) retryCount[i] = 0;
+                double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+                double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+                if (bid == 0.0 || ask == 0.0) {
+                    if (i < 100 && retryCount[i] < 5) {
+                        retryCount[i]++;
+                        Print("Retraso cierre: Precios no disponibles. Reintento ", IntegerToString(retryCount[i]));
+                        return;
                     } else {
-                        int error = GetLastError();
-                        if ((error == 10013 || error == 10018) && i < 100 && retryCount[i] < 5) {
-                            retryCount[i]++;
-                            Print("Fallo cierre (Error ", IntegerToString(error), "). Reintento ", IntegerToString(retryCount[i]));
-                        } else if (i < 100 && retryCount[i] >= 5) {
-                            Print("Fallo permanente tras 5 reintentos. Error ", IntegerToString(error));
-                        } else {
-                            Print("Fallo cierre (Error ", IntegerToString(error), "). Sin reintento.");
-                        }
+                        Print("Fallo permanente: Precios no disponibles tras 5 reintentos.");
+                        continue;
                     }
-                } else {
+                }
+                if (trade.PositionClose(ticket)) {
+                    Print("Posición cerrada por descruce de EMAs 20/50 en H1: ", symbol,
+                          ", Ticket: ", StringFormat("%I64u", ticket),
+                          ", Tipo: ", (type == POSITION_TYPE_BUY ? "Compra" : "Venta"));
+                    double closePrice = (type == POSITION_TYPE_BUY) ? bid : ask;
+                    LogTrade(TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES | TIME_SECONDS),
+                             symbol,
+                             (type == POSITION_TYPE_BUY ? "BuyClose" : "SellClose"),
+                             DoubleToString(closePrice, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)),
+                             DoubleToString(m_position_info.Volume(), 2),
+                             DoubleToString(m_position_info.StopLoss(), (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)),
+                             DoubleToString(m_position_info.TakeProfit(), (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)),
+                             "EMA20/EMA50 Descruce Close");
                     if (i < 100) retryCount[i] = 0;
+                } else {
+                    int error = GetLastError();
+                    if ((error == 10013 || error == 10018) && i < 100 && retryCount[i] < 5) {
+                        retryCount[i]++;
+                        Print("Fallo cierre (Error ", IntegerToString(error), "). Reintento ", IntegerToString(retryCount[i]));
+                    } else if (i < 100 && retryCount[i] >= 5) {
+                        Print("Fallo permanente tras 5 reintentos. Error ", IntegerToString(error));
+                    } else {
+                        Print("Fallo cierre (Error ", IntegerToString(error), "). Sin reintento.");
+                    }
                 }
             }
         }
