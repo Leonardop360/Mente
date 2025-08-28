@@ -2138,13 +2138,16 @@ void OnTick() {
         // Filtro de ATR dinámico en H1 (bloqueo por picos de volatilidad)
         if (!PassesDynamicATRFilter(symbol)) continue;
 
+        // Dirección de tendencia en H1 (obligatoria): 1 alcista, -1 bajista
+        long h1Dir = GetH1MarketDirection(symbol);
+
         // Compra: cerca de soporte M5 + RSI<30 + MACD alcista
-        if (IsNearSupportM5(symbol, bid) && rsi < RSIOversold && macdSignal == 1) {
+        if (h1Dir == 1 && IsNearSupportM5(symbol, bid) && rsi < RSIOversold && macdSignal == 1) {
             OpenPosition(symbol, 1);
             if (criticalError) return;
         }
         // Venta: cerca de resistencia M5 + RSI>70 + MACD bajista
-        else if (IsNearResistanceM5(symbol, ask) && rsi > RSIOverbought && macdSignal == -1) {
+        else if (h1Dir == -1 && IsNearResistanceM5(symbol, ask) && rsi > RSIOverbought && macdSignal == -1) {
             OpenPosition(symbol, -1);
             if (criticalError) return;
         }
