@@ -30,8 +30,8 @@
 #define BE_OFFSET_PIPS 1      // SL to entry + 1 pip
 #define TRAILING_START_PIPS 5 // Trailing Stop at 5 pips
 #define TRAILING_STEP_PIPS 2  // Step of 2 pips
-#define SR_PROXIMITY_PIPS 5   // Proximity to support/resistance in pips
-#define ATR_THRESHOLD_MULTIPLIER 2.0 // Threshold for max ATR to block trading
+#define SR_PROXIMITY_PIPS 3   // Proximity to support/resistance in pips
+#define ATR_THRESHOLD_MULTIPLIER 2.3 // Threshold for max ATR to block trading
 #define ATR_TS_MULTIPLIER 1.0 // NUEVO: multiplicador para Trailing Stop basado en ATR M5
 
 // NUEVO: configuración dinámica de volumen
@@ -77,13 +77,13 @@ input ENUM_TIMEFRAMES TimeFrame_H1    = PERIOD_H1;
 input double LotSize          = 0.2;         // Lot for standard pairs
 input double HighVolLotSize = 0.01;      // Lot for high volatility pairs
 input int Slippage            = 5;
-input int RSIPeriod          = 14;
+input int RSIPeriod          = 9;
 input double RSIOverbought     = 70.0;      // Ajustado a 70 para sobrecompra
 input double RSIOversold     = 30.0;      // Ajustado a 30 para sobreventa
 input int MACDFastEMA         = 12;
 input int MACDSlowEMA         = 26;
 input int MACDSignalSMA       = 9;
-input int BlockStartHourLocal = 14; // Block start hour (Quito, UTC-5)
+input int BlockStartHourLocal = 15; // Block start hour (Quito, UTC-5)
 input int BlockEndHourLocal     = 20; // Block end hour (Quito)
 input long MinRealVolume_Asia = 500;
 input long MinRealVolume_London = 1000;
@@ -91,17 +91,17 @@ input long MinRealVolume_NY = 1500;
 input long MinTickVolume_Asia = 200;
 input long MinTickVolume_London = 400;
 input long MinTickVolume_NY = 600;
-input double CorrelationThreshold = 0.7;
+input double CorrelationThreshold = 0.85;
 input long TimeZoneOffsetHours = -5; // Quito, UTC-5
 // NUEVOS inputs
-input bool RequireH1BarCloseConfirmation = true;
+input bool RequireH1BarCloseConfirmation = false;
 input int H1ConfirmBarsN = 1; // N velas H1 consecutivas confirmando tendencia
 input double SpreadATRMultiplier = 0.0; // 0 desactiva filtro relativo ATR; sugerido 0.4-0.6
-input int MaxPositionsPerSymbolPerDirection = 1;
+input int MaxPositionsPerSymbolPerDirection = 2;
 input bool EnableBufferedCSV = true;
 input int CSVFlushIntervalSeconds = 5;
 input int CSVFlushBatchSize = 20;
-input int TimerIntervalSeconds = 3; // 1–5s recomendado
+input int TimerIntervalSeconds = 1; // 1–5s recomendado
 input int MagicNumber = 76001;
 input int DeviationPoints = 10;
 input int LogLevel = 2; // 0=ERROR,1=WARN,2=INFO,3=DEBUG
