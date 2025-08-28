@@ -296,6 +296,9 @@ void ToLocalStruct(const datetime t, MqlDateTime &outTm);
 // NUEVO: helper de pips
 double PipValue(const string symbol);
 
+// NUEVO: precarga/aseguramiento de series
+bool EnsureSeriesReady(string symbol, ENUM_TIMEFRAMES tf, int minBars, int maxWaitMs);
+
 // EA Initialization
 int OnInit() {
     Print("Inicializando Experto 8.0 en ", _Symbol, " a las ", TimeToString(TimeCurrent()));
@@ -416,6 +419,10 @@ int OnInit() {
             i--;
             continue;
         }
+
+        // Precargar/asegurar series H1 y M5 para evitar abortar señales por datos faltantes
+        EnsureSeriesReady(currentSymbol, PERIOD_H1, 100, 3000);
+        EnsureSeriesReady(currentSymbol, PERIOD_M5, 200, 3000);
 
         double symbolMinLot = SymbolInfoDouble(currentSymbol, SYMBOL_VOLUME_MIN);
         if (symbolMinLot == 0.0) {
@@ -582,6 +589,22 @@ double PipValue(const string symbol) {
     if (digits == 3 || digits == 5) return point * 10.0;
     // Para metales/índices con ticks no estándar, por defecto = point
     return point;
+}
+
+// Precarga/asegura que las series estén listas
+bool EnsureSeriesReady(string symbol, ENUM_TIMEFRAMES tf, int minBars, int maxWaitMs) {
+    if (!SymbolSelect(symbol, true)) return false;
+    int waited = 0;
+    int step = 50; // ms
+    while (iBars(symbol, tf) < minBars && waited < maxWaitMs) {
+        RefreshRates();
+        Sleep(step);
+        waited += step;
+    }
+    // Intento de copiado para forzar carga
+    double tmp[];
+    CopyClose(symbol, tf, 0, MathMin(minBars, 5), tmp);
+    return iBars(symbol, tf) >= minBars;
 }
 
 // Dynamic spread filter
