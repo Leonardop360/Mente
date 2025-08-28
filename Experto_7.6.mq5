@@ -197,8 +197,8 @@ bool symbolError[];
 const int RECOVERY_RETRY_INTERVAL_SECONDS = 60;
 datetime lastRecoveryAttempt = 0;
 
-// Correlación dinámica
-double dynamicCorrelationMatrix[][19];
+// Correlación dinámica (segunda dimensión fija amplia para soportar hasta 200 símbolos)
+double dynamicCorrelationMatrix[][200];
 datetime lastCorrelationUpdate = 0;
 const int CORRELATION_UPDATE_INTERVAL_SECONDS = 900;
 
@@ -460,10 +460,9 @@ int OnInit() {
         }
     }
 
-    // Init dynamic correlation matrix
+    // Init dynamic correlation matrix (segunda dimensión ya fija)
     ArrayResize(dynamicCorrelationMatrix, symbolCount);
     for (int i = 0; i < symbolCount; i++) {
-        ArrayResize(dynamicCorrelationMatrix[i], symbolCount);
         for (int j = 0; j < symbolCount; j++) dynamicCorrelationMatrix[i][j] = 0.0;
     }
     lastCorrelationUpdate = 0;
