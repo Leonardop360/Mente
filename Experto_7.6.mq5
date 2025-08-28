@@ -67,8 +67,11 @@
 
 CTrade trade;
 CPositionInfo m_position_info;
+// Config de trade
+int g_magic = 0;
+int g_deviation = 0;
 
-input string SymbolsList = "EURUSD,EURJPY,EURAUD,GBPUSD,GBPJPY,EURGBP,AUDUSD,AUDJPY,USDCAD,CADJPY,NZDUSD,NZDJPY,EURNZD,USDJPY,USDCHF,XAUUSD,USDMXN,USDZAR,EURTRY";
+input string SymbolsList = "EURUSD,EURJPY,EURAUD,GBPUSD,GBPJPY,EURGBP,AUDUSD,AUDJPY,USDCAD,CADJPY,NZDUSD,NZDJPY,EURNZD,USDJPY,USDCHF,XAUUSD,USDMXN,USDZAR,EURTRY,EURCAD,GBPCAD,CHFJPY,AUDCAD,AUDNZD,NZDCAD,EURCHF,GBPNZD,CADCHF";
 input ENUM_TIMEFRAMES TimeFrame_Main = PERIOD_M5;
 input ENUM_TIMEFRAMES TimeFrame_H1    = PERIOD_H1;
 input double LotSize          = 0.2;         // Lot for standard pairs
@@ -90,6 +93,20 @@ input long MinTickVolume_London = 400;
 input long MinTickVolume_NY = 600;
 input double CorrelationThreshold = 0.7;
 input long TimeZoneOffsetHours = -5; // Quito, UTC-5
+// NUEVOS inputs
+input bool RequireH1BarCloseConfirmation = true;
+input int H1ConfirmBarsN = 1; // N velas H1 consecutivas confirmando tendencia
+input double SpreadATRMultiplier = 0.0; // 0 desactiva filtro relativo ATR; sugerido 0.4-0.6
+input int MaxPositionsPerSymbolPerDirection = 1;
+input bool EnableBufferedCSV = true;
+input int CSVFlushIntervalSeconds = 5;
+input int CSVFlushBatchSize = 20;
+input int TimerIntervalSeconds = 3; // 1–5s recomendado
+input int MagicNumber = 76001;
+input int DeviationPoints = 10;
+input int LogLevel = 2; // 0=ERROR,1=WARN,2=INFO,3=DEBUG
+input bool DrawDebugObjects = false;
+input string PipOverrides = ""; // Ej: "XAUUSD:0.10;US30:1.0"
 
 // Correlation matrix for 19 pairs (fallback)
 double CorrelationMatrix[][19] = {
@@ -138,6 +155,43 @@ int indicatorHandles[];
 int maxHandles = 100;
 bool managingPreexistingPositions = true;
 datetime lastH1BarTime[];
+
+// Cache de handles e indicadores por símbolo/timeframe
+struct IndicatorCache {
+    int rsi_m5;
+    int macd_m5;
+    int atr_m5;
+    int atr_h1;
+    int ema20_h1;
+    int ema50_h1;
+};
+IndicatorCache indCache[];
+
+// Cache de buffers por tick (evitar CopyBuffer redundante)
+struct TickBuffers {
+    bool has_rsi;
+    double rsi;
+    bool has_macd_sig;
+    double macd;
+    double macd_signal;
+    bool has_atr_m5;
+    double atr_m5;
+    bool has_atr_h1;
+    double atr_h1;
+    bool has_ema20_ema50;
+    double ema20_last;
+    double ema20_prev;
+    double ema50_last;
+    double ema50_prev;
+};
+TickBuffers tickBuf[];
+
+// CSV buffer
+string csvBuffer[];
+datetime lastCSVFlush = 0;
+
+// Errores por símbolo (no globales)
+bool symbolError[];
 
 // Auto-recovery globals
 const int RECOVERY_RETRY_INTERVAL_SECONDS = 60;
@@ -389,6 +443,11 @@ int OnInit() {
     }
     
     ArrayResize(indicatorHandles, 0);
+    // Config trade
+    g_magic = MagicNumber;
+    g_deviation = DeviationPoints;
+    trade.SetExpertMagicNumber(g_magic);
+    trade.SetDeviationInPoints(g_deviation);
     FetchNewsEvents();
     
     ArrayResize(lastH1BarTime, symbolCount);
@@ -404,7 +463,8 @@ int OnInit() {
     // Init dynamic correlation matrix
     ArrayResize(dynamicCorrelationMatrix, symbolCount);
     for (int i = 0; i < symbolCount; i++) {
-        for (int j = 0; j < 19; j++) dynamicCorrelationMatrix[i][j] = 0.0;
+        ArrayResize(dynamicCorrelationMatrix[i], symbolCount);
+        for (int j = 0; j < symbolCount; j++) dynamicCorrelationMatrix[i][j] = 0.0;
     }
     lastCorrelationUpdate = 0;
     UpdateCorrelationMatrix();
@@ -423,6 +483,28 @@ int OnInit() {
     lastVolumeCacheUpdate = 0;
     UpdateVolumeThresholds();
 
+    // Cache de indicadores / buffers / errores por símbolo
+    ArrayResize(indCache, symbolCount);
+    ArrayResize(tickBuf, symbolCount);
+    ArrayResize(symbolError, symbolCount);
+    for (int i = 0; i < symbolCount; i++) {
+        indCache[i].rsi_m5 = INVALID_HANDLE;
+        indCache[i].macd_m5 = INVALID_HANDLE;
+        indCache[i].atr_m5 = INVALID_HANDLE;
+        indCache[i].atr_h1 = INVALID_HANDLE;
+        indCache[i].ema20_h1 = INVALID_HANDLE;
+        indCache[i].ema50_h1 = INVALID_HANDLE;
+        tickBuf[i].has_rsi = false;
+        tickBuf[i].has_macd_sig = false;
+        tickBuf[i].has_atr_m5 = false;
+        tickBuf[i].has_atr_h1 = false;
+        tickBuf[i].has_ema20_ema50 = false;
+        symbolError[i] = false;
+    }
+
+    // Timer
+    if (TimerIntervalSeconds > 0) EventSetTimer(TimerIntervalSeconds);
+
     Print("Inicializacion completada. Simbolos: ", IntegerToString(symbolCount), ", LotSize: ", DoubleToString(adjustedLotSize, 2), ", HighVolLotSize: ", DoubleToString(adjustedHighVolLotSize, 2));
     lastTickTime = TimeCurrent();
     Comment("Experto 7.6: Inicializacion exitosa. Trading activo.");
@@ -435,6 +517,7 @@ void OnDeinit(const int reason) {
     Print("Desinicializando Experto 7.6. Motivo: ", IntegerToString(reason), " (", GetDeinitReasonText(reason), ")");
     Print("Ultimo error: ", lastErrorMessage);
     Comment("");
+    EventKillTimer();
     ReleaseIndicatorHandles();
     ArrayFree(activeSymbols);
     ArrayFree(newsEvents);
@@ -479,10 +562,26 @@ string Trim(string s) {
 
 // NUEVO: helper de pips
 double PipValue(const string symbol) {
+    // Overrides por input (formato "SYM:val;SYM2:val2")
+    if (StringLen(PipOverrides) > 0) {
+        string parts[]; StringSplit(PipOverrides, ';', parts);
+        for (int i = 0; i < ArraySize(parts); i++) {
+            int colon = StringFind(parts[i], ":");
+            if (colon > 0) {
+                string sym = StringSubstr(parts[i], 0, colon);
+                string val = StringSubstr(parts[i], colon + 1);
+                if (sym == symbol) {
+                    double v = StringToDouble(val);
+                    if (v > 0.0) return v;
+                }
+            }
+        }
+    }
     const int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
     const double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
     if (point == 0.0) return 0.0;
     if (digits == 3 || digits == 5) return point * 10.0;
+    // Para metales/índices con ticks no estándar, por defecto = point
     return point;
 }
 
@@ -541,48 +640,64 @@ double GetSpread(string symbol) {
         criticalError = true;
         return 20.0;
     }
-    return (ask - bid) / point;
+    double spread_points = (ask - bid) / point;
+    if (SpreadATRMultiplier > 0.0) {
+        double atr_h1 = GetATR(symbol);
+        if (atr_h1 > 0.0) {
+            double threshold_points = (atr_h1 / point) * SpreadATRMultiplier;
+            if (spread_points > threshold_points) return 1e9; // bloquea por spread relativo
+        }
+    }
+    return spread_points;
 }
 
 // Get RSI on M5
 double GetRSI(string symbol) {
-    int handle = iRSI(symbol, TimeFrame_Main, RSIPeriod, PRICE_CLOSE);
+    int idx = GetSymbolIndex(symbol);
+    if (idx >= 0 && indCache[idx].rsi_m5 == INVALID_HANDLE) indCache[idx].rsi_m5 = iRSI(symbol, TimeFrame_Main, RSIPeriod, PRICE_CLOSE);
+    int handle = (idx >= 0 ? indCache[idx].rsi_m5 : iRSI(symbol, TimeFrame_Main, RSIPeriod, PRICE_CLOSE));
     if (handle == INVALID_HANDLE) {
         lastErrorMessage = "ERROR: Could not create RSI handle for " + symbol + ". EA stopped.";
         Print(lastErrorMessage);
         criticalError = true;
         return 50.0;
     }
+    if (idx >= 0 && tickBuf[idx].has_rsi) return tickBuf[idx].rsi;
     double buffer[];
     if (CopyBuffer(handle, 0, 0, 1, buffer) <= 0) {
         lastErrorMessage = "ERROR: Could not get RSI data for " + symbol + ". EA stopped.";
         Print(lastErrorMessage);
-        IndicatorRelease(handle);
         criticalError = true;
         return 50.0;
     }
-    AddIndicatorHandle(handle);
+    if (idx >= 0) { tickBuf[idx].has_rsi = true; tickBuf[idx].rsi = buffer[0]; }
     return buffer[0];
 }
 
 // MACD Signal on M5
 int CheckMACDSignal(string symbol) {
-    int handle = iMACD(symbol, TimeFrame_Main, MACDFastEMA, MACDSlowEMA, MACDSignalSMA, PRICE_CLOSE);
+    int idx = GetSymbolIndex(symbol);
+    if (idx >= 0 && indCache[idx].macd_m5 == INVALID_HANDLE) indCache[idx].macd_m5 = iMACD(symbol, TimeFrame_Main, MACDFastEMA, MACDSlowEMA, MACDSignalSMA, PRICE_CLOSE);
+    int handle = (idx >= 0 ? indCache[idx].macd_m5 : iMACD(symbol, TimeFrame_Main, MACDFastEMA, MACDSlowEMA, MACDSignalSMA, PRICE_CLOSE));
     if (handle == INVALID_HANDLE) {
         lastErrorMessage = "ERROR: Could not create MACD handle for " + symbol + ". EA stopped.";
         Print(lastErrorMessage);
         criticalError = true;
         return 0;
     }
+    if (idx >= 0 && tickBuf[idx].has_macd_sig) {
+        if (tickBuf[idx].macd > tickBuf[idx].macd_signal) return 1;
+        if (tickBuf[idx].macd < tickBuf[idx].macd_signal) return -1;
+        return 0;
+    }
     double macd[], signal[];
     if (CopyBuffer(handle, 0, 0, 1, macd) <= 0 || CopyBuffer(handle, 1, 0, 1, signal) <= 0) {
         lastErrorMessage = "ERROR: Could not get MACD data for " + symbol + ". EA stopped.";
         Print(lastErrorMessage);
-        IndicatorRelease(handle);
         criticalError = true;
         return 0;
     }
-    AddIndicatorHandle(handle);
+    if (idx >= 0) { tickBuf[idx].has_macd_sig = true; tickBuf[idx].macd = macd[0]; tickBuf[idx].macd_signal = signal[0]; }
     if (macd[0] > signal[0]) return 1;
     if (macd[0] < signal[0]) return -1;
     return 0;
@@ -622,43 +737,47 @@ double GetRecentLow(string symbol) {
 
 // ATR for volatility on H1
 double GetATR(string symbol) {
-    int handle = iATR(symbol, TimeFrame_H1, 14);
+    int idx = GetSymbolIndex(symbol);
+    if (idx >= 0 && indCache[idx].atr_h1 == INVALID_HANDLE) indCache[idx].atr_h1 = iATR(symbol, TimeFrame_H1, 14);
+    int handle = (idx >= 0 ? indCache[idx].atr_h1 : iATR(symbol, TimeFrame_H1, 14));
     if (handle == INVALID_HANDLE) {
         lastErrorMessage = "ERROR: Could not create ATR handle for " + symbol + ". EA stopped.";
         Print(lastErrorMessage);
         criticalError = true;
         return 0.0;
     }
+    if (idx >= 0 && tickBuf[idx].has_atr_h1) return tickBuf[idx].atr_h1;
     double buffer[];
     if (CopyBuffer(handle, 0, 0, 1, buffer) <= 0) {
         lastErrorMessage = "ERROR: Could not get ATR data for " + symbol + ". EA stopped.";
         Print(lastErrorMessage);
-        IndicatorRelease(handle);
         criticalError = true;
         return 0.0;
     }
-    AddIndicatorHandle(handle);
+    if (idx >= 0) { tickBuf[idx].has_atr_h1 = true; tickBuf[idx].atr_h1 = buffer[0]; }
     return buffer[0];
 }
 
 // NUEVO: ATR en M5 para Trailing Stop dinámico
 double GetATRM5(string symbol) {
-    int handle = iATR(symbol, TimeFrame_Main, 14);
+    int idx = GetSymbolIndex(symbol);
+    if (idx >= 0 && indCache[idx].atr_m5 == INVALID_HANDLE) indCache[idx].atr_m5 = iATR(symbol, TimeFrame_Main, 14);
+    int handle = (idx >= 0 ? indCache[idx].atr_m5 : iATR(symbol, TimeFrame_Main, 14));
     if (handle == INVALID_HANDLE) {
         lastErrorMessage = "ERROR: Could not create ATR M5 handle for " + symbol + ". EA stopped.";
         Print(lastErrorMessage);
         criticalError = true;
         return 0.0;
     }
+    if (idx >= 0 && tickBuf[idx].has_atr_m5) return tickBuf[idx].atr_m5;
     double buffer[];
     if (CopyBuffer(handle, 0, 0, 1, buffer) <= 0) {
         lastErrorMessage = "ERROR: Could not get ATR M5 data for " + symbol + ". EA stopped.";
         Print(lastErrorMessage);
-        IndicatorRelease(handle);
         criticalError = true;
         return 0.0;
     }
-    AddIndicatorHandle(handle);
+    if (idx >= 0) { tickBuf[idx].has_atr_m5 = true; tickBuf[idx].atr_m5 = buffer[0]; }
     return buffer[0];
 }
 
@@ -754,13 +873,22 @@ void ReleaseIndicatorHandles() {
             IndicatorRelease(indicatorHandles[i]);
         }
     }
+    // Liberar cache de handles
+    for (int i = 0; i < ArraySize(indCache); i++) {
+        if (indCache[i].rsi_m5 != INVALID_HANDLE) { IndicatorRelease(indCache[i].rsi_m5); indCache[i].rsi_m5 = INVALID_HANDLE; }
+        if (indCache[i].macd_m5 != INVALID_HANDLE) { IndicatorRelease(indCache[i].macd_m5); indCache[i].macd_m5 = INVALID_HANDLE; }
+        if (indCache[i].atr_m5 != INVALID_HANDLE) { IndicatorRelease(indCache[i].atr_m5); indCache[i].atr_m5 = INVALID_HANDLE; }
+        if (indCache[i].atr_h1 != INVALID_HANDLE) { IndicatorRelease(indCache[i].atr_h1); indCache[i].atr_h1 = INVALID_HANDLE; }
+        if (indCache[i].ema20_h1 != INVALID_HANDLE) { IndicatorRelease(indCache[i].ema20_h1); indCache[i].ema20_h1 = INVALID_HANDLE; }
+        if (indCache[i].ema50_h1 != INVALID_HANDLE) { IndicatorRelease(indCache[i].ema50_h1); indCache[i].ema50_h1 = INVALID_HANDLE; }
+    }
     ArrayFree(indicatorHandles);
 }
 
 // Fetch news from Myfxbook
 bool FetchNewsFromWeb() {
     string url = "https://www.myfxbook.com/forex-economic-calendar";
-    string headers = "";
+    string headers = "User-Agent: Mozilla/5.0";
     char post[], result[];
     int timeout = 5000;
     int res = WebRequest("GET", url, headers, timeout, post, result, headers);
@@ -904,6 +1032,34 @@ void FetchNewsFromCSV() {
         // Imprimir eventos cargados para depuración
         for (int i = 0; i < eventCount; i++) {
             Print("Evento ", i + 1, ": ", TimeToString(newsEvents[i].time, TIME_DATE|TIME_MINUTES), ", ", newsEvents[i].currency, ", ", newsEvents[i].description, ", ", newsEvents[i].impact);
+        }
+    }
+}
+
+// OnTimer: tareas no críticas para liberar OnTick
+void OnTimer() {
+    datetime now = TimeCurrent();
+    // Noticias
+    if (now - lastNewsCheck >= NEWS_CHECK_INTERVAL) {
+        FetchNewsEvents();
+        lastNewsCheck = now;
+    }
+    // Correlación
+    UpdateCorrelationMatrix();
+    // Umbrales volumen
+    UpdateVolumeThresholds();
+    // Flush CSV
+    if (EnableBufferedCSV) {
+        if (lastCSVFlush == 0 || now - lastCSVFlush >= CSVFlushIntervalSeconds || ArraySize(csvBuffer) >= CSVFlushBatchSize) {
+            if (ArraySize(csvBuffer) > 0) {
+                int handle = FileOpen("TradeLog.csv", FILE_WRITE | FILE_CSV | FILE_COMMON | FILE_ADD, ',');
+                if (handle != INVALID_HANDLE) {
+                    for (int i = 0; i < ArraySize(csvBuffer); i++) FileWrite(handle, csvBuffer[i]);
+                    FileClose(handle);
+                    ArrayResize(csvBuffer, 0);
+                }
+                lastCSVFlush = now;
+            }
         }
     }
 }
@@ -1118,6 +1274,11 @@ bool IsMarketOpen(string symbol) {
         criticalError = true;
         return false;
     }
+    // Stop/Freeze level compliance
+    double stopLevel = SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL) * SymbolInfoDouble(symbol, SYMBOL_POINT);
+    double freezeLevel = SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL) * SymbolInfoDouble(symbol, SYMBOL_POINT);
+    if (stopLevel < 0.0) stopLevel = 0.0;
+    if (freezeLevel < 0.0) freezeLevel = 0.0;
     return true;
 }
 
@@ -1483,21 +1644,27 @@ void OpenPosition(string symbol, int direction) {
 
 // Write to CSV
 void WriteToCSV(string csvLine) {
-    int handle = FileOpen("TradeLog.csv", FILE_WRITE | FILE_CSV | FILE_COMMON | FILE_ADD, ',');
-    if (handle == INVALID_HANDLE) {
-        lastErrorMessage = "ERROR: Could not open TradeLog.csv: " + IntegerToString(GetLastError());
-        Print(lastErrorMessage);
-        return;
+    if (EnableBufferedCSV) {
+        int sz = ArraySize(csvBuffer);
+        ArrayResize(csvBuffer, sz + 1);
+        csvBuffer[sz] = csvLine;
+    } else {
+        int handle = FileOpen("TradeLog.csv", FILE_WRITE | FILE_CSV | FILE_COMMON | FILE_ADD, ',');
+        if (handle == INVALID_HANDLE) {
+            lastErrorMessage = "ERROR: Could not open TradeLog.csv: " + IntegerToString(GetLastError());
+            Print(lastErrorMessage);
+            return;
+        }
+        FileWrite(handle, csvLine);
+        FileClose(handle);
     }
-    FileWrite(handle, csvLine);
-    FileClose(handle);
 }
 
 // Log trade
 void LogTrade(string time_str, string symbol, string action, string price_str, string lot_str, string sl_str, string tp_str, string reason) {
     string csvLine = time_str + "," + symbol + "," + action + "," + price_str + "," + lot_str + "," + sl_str + "," + tp_str + "," + reason;
     WriteToCSV(csvLine);
-    Print("Log: ", csvLine);
+    if (LogLevel >= 2) Print("Log: ", csvLine);
 }
 
 // Manage open positions
@@ -1559,7 +1726,13 @@ void CloseAllPositivePositions() {
 
 // Get EMA slope
 double GetEMASlope(string symbol, int period, int bars) {
-    int handle = iMA(symbol, TimeFrame_H1, period, 0, MODE_EMA, PRICE_CLOSE);
+    int idx = GetSymbolIndex(symbol);
+    if (period == 20) {
+        if (idx >= 0 && indCache[idx].ema20_h1 == INVALID_HANDLE) indCache[idx].ema20_h1 = iMA(symbol, TimeFrame_H1, 20, 0, MODE_EMA, PRICE_CLOSE);
+    }
+    int handle = (idx >= 0 && period == 20 && indCache[idx].ema20_h1 != INVALID_HANDLE)
+                 ? indCache[idx].ema20_h1
+                 : iMA(symbol, TimeFrame_H1, period, 0, MODE_EMA, PRICE_CLOSE);
     if (handle == INVALID_HANDLE) {
         lastErrorMessage = "ERROR: Could not create EMA handle for " + symbol + ". EA stopped.";
         Print(lastErrorMessage);
@@ -1570,11 +1743,9 @@ double GetEMASlope(string symbol, int period, int bars) {
     if (CopyBuffer(handle, 0, 0, bars + 1, ema) < bars + 1) {
         lastErrorMessage = "ERROR: Could not get EMA data for " + symbol + ". EA stopped.";
         Print(lastErrorMessage);
-        IndicatorRelease(handle);
         criticalError = true;
         return 0.0;
     }
-    IndicatorRelease(handle);
     // Devolver delta en unidades de precio (no dividir por point)
     return (ema[0] - ema[1]);
 }
@@ -1630,11 +1801,7 @@ bool CheckCorrelation(string symbol) {
             }
             if (posSymbolIndex != -1) {
                 double corr = 0.0;
-                if (ArraySize(dynamicCorrelationMatrix) >= symbolCount) {
-                    corr = dynamicCorrelationMatrix[symbolIndex][posSymbolIndex];
-                } else {
-                    corr = CorrelationMatrix[symbolIndex][posSymbolIndex];
-                }
+                corr = dynamicCorrelationMatrix[symbolIndex][posSymbolIndex];
                 if (MathAbs(corr) > CorrelationThreshold) {
                     if (!IsPositionProtected(posSymbol, ticket)) {
                         allProtected = false;
@@ -1742,13 +1909,9 @@ void UpdateCorrelationMatrix() {
             dynamicCorrelationMatrix[i][j] = corr;
             dynamicCorrelationMatrix[j][i] = corr;
         }
-        // Zero out unused columns beyond symbolCount (keep fixed second dim 19)
-        for (int k = symbolCount; k < 19; k++) {
-            dynamicCorrelationMatrix[i][k] = 0.0;
-        }
     }
     lastCorrelationUpdate = now;
-    Print("Matriz de correlacion dinamica actualizada a ", TimeToString(now, TIME_DATE|TIME_MINUTES));
+    if (LogLevel >= 2) Print("Matriz de correlacion dinamica actualizada a ", TimeToString(now, TIME_DATE|TIME_MINUTES));
 }
 
 // Pearson correlation on last 100 H1 bars (simple returns)
@@ -2100,16 +2263,7 @@ void OnTick() {
     }
     lastTickTime = now;
 
-    if (now - lastNewsCheck >= NEWS_CHECK_INTERVAL) {
-        FetchNewsEvents();
-        lastNewsCheck = now;
-    }
-
-    // Actualizar matriz de correlación dinámica
-    UpdateCorrelationMatrix();
-
-    // Actualizar umbrales dinámicos de volumen (cada hora)
-    UpdateVolumeThresholds();
+    // Tareas no críticas movidas a OnTimer
 
     for (int i = 0; i < symbolCount; i++) {
         string symbol = activeSymbols[i];
@@ -2119,10 +2273,11 @@ void OnTick() {
         if (CopyRates(symbol, TimeFrame_H1, 0, 1, rates) < 1) continue;
         if (rates[0].time > lastH1BarTime[i]) {
             lastH1BarTime[i] = rates[0].time;
+            // Acciones de estado solo al cierre de vela H1
             ClosePositionsOnFriday();
         }
 
-        // Verificar y cerrar posiciones por cambio de dirección de EMAs en H1
+        // Verificación intrabar como stop de seguridad (cierre por descruce H1)
         CheckAndClosePositionsOnEMACross(symbol);
 
         // NUEVO: si estamos en bloqueo/no operación, cerrar forzado antes de noticias (≤5 min), sin considerar P/L
