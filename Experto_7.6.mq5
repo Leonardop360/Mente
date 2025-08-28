@@ -20,7 +20,7 @@
 //+------------------------------------------------------------------+
 
 #property copyright "Leonardo"
-#property version     "7.6"
+#property version     "8.0"
 #property strict
 
 // Manual definitions for constants if standard include files are missing
@@ -298,7 +298,7 @@ double PipValue(const string symbol);
 
 // EA Initialization
 int OnInit() {
-    Print("Inicializando Experto 7.6 en ", _Symbol, " a las ", TimeToString(TimeCurrent()));
+    Print("Inicializando Experto 8.0 en ", _Symbol, " a las ", TimeToString(TimeCurrent()));
     criticalError = false;
     lastErrorMessage = "";
     
@@ -506,8 +506,8 @@ int OnInit() {
 
     Print("Inicializacion completada. Simbolos: ", IntegerToString(symbolCount), ", LotSize: ", DoubleToString(adjustedLotSize, 2), ", HighVolLotSize: ", DoubleToString(adjustedHighVolLotSize, 2));
     lastTickTime = TimeCurrent();
-    Comment("Experto 7.6: Inicializacion exitosa. Trading activo.");
-    Alert("Experto 7.6: Inicializacion exitosa. Trading activo.");
+    Comment("Experto 8.0: Inicializacion exitosa. Trading activo.");
+    Alert("Experto 8.0: Inicializacion exitosa. Trading activo.");
     return INIT_SUCCEEDED;
 }
 
@@ -1321,31 +1321,30 @@ bool IsVolumeValid(string symbol) {
 
 // Get H1 market direction
 long GetH1MarketDirection(string symbol) {
-    int ema20_handle = iMA(symbol, TimeFrame_H1, 20, 0, MODE_EMA, PRICE_CLOSE);
-    int ema50_handle = iMA(symbol, TimeFrame_H1, 50, 0, MODE_EMA, PRICE_CLOSE);
+    int idx = GetSymbolIndex(symbol);
+    if (idx >= 0) {
+        if (indCache[idx].ema20_h1 == INVALID_HANDLE) indCache[idx].ema20_h1 = iMA(symbol, TimeFrame_H1, 20, 0, MODE_EMA, PRICE_CLOSE);
+        if (indCache[idx].ema50_h1 == INVALID_HANDLE) indCache[idx].ema50_h1 = iMA(symbol, TimeFrame_H1, 50, 0, MODE_EMA, PRICE_CLOSE);
+    }
+    int ema20_handle = (idx >= 0 ? indCache[idx].ema20_h1 : iMA(symbol, TimeFrame_H1, 20, 0, MODE_EMA, PRICE_CLOSE));
+    int ema50_handle = (idx >= 0 ? indCache[idx].ema50_h1 : iMA(symbol, TimeFrame_H1, 50, 0, MODE_EMA, PRICE_CLOSE));
 
     if (ema20_handle == INVALID_HANDLE || ema50_handle == INVALID_HANDLE) {
-        Print("ERROR: No se pudo crear el handle de EMA para ", symbol);
+        Print("WARN: EMA handles H1 no disponibles para ", symbol);
         return 0;
     }
+
+    if (Bars(symbol, TimeFrame_H1) < 2) return 0;
 
     double ema20[], ema50[];
     if (CopyBuffer(ema20_handle, 0, 0, 2, ema20) < 2 || CopyBuffer(ema50_handle, 0, 0, 2, ema50) < 2) {
-        Print("ERROR: No se pudieron copiar los datos de EMA para ", symbol);
-        IndicatorRelease(ema20_handle);
-        IndicatorRelease(ema50_handle);
+        Print("WARN: No se pudieron copiar los datos de EMA H1 para ", symbol);
         return 0;
     }
-    
-    IndicatorRelease(ema20_handle);
-    IndicatorRelease(ema50_handle);
 
     // Filtrar cruces en los primeros 5 minutos de la vela H1
     MqlRates rates[];
-    if (CopyRates(symbol, TimeFrame_H1, 0, 1, rates) < 1) {
-        Print("ERROR: No se pudo obtener la vela H1 para ", symbol);
-        return 0;
-    }
+    if (CopyRates(symbol, TimeFrame_H1, 0, 1, rates) < 1) return 0;
     
     if (rates[0].time + PeriodSeconds(PERIOD_H1) < TimeCurrent()) {
         Print("ADVERTENCIA: Datos H1 desactualizados para ", symbol);
@@ -1872,8 +1871,8 @@ bool TryRecoverFromCriticalError() {
         criticalError = false;
         lastErrorMessage = "";
         Print("INFO: Datos de mercado restaurados. EA reactivado automaticamente a ", TimeToString(now, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
-        Comment("Experto 7.6: Datos restaurados. Trading reactivado.");
-        Alert("Experto 7.6: Datos restaurados. Trading reactivado.");
+        Comment("Experto 8.0: Datos restaurados. Trading reactivado.");
+        Alert("Experto 8.0: Datos restaurados. Trading reactivado.");
         return true;
     } else {
         Print("ADVERTENCIA: Intento de recuperacion fallido. Datos aun no disponibles (", TimeToString(now, TIME_DATE|TIME_MINUTES|TIME_SECONDS), ")");
