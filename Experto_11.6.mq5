@@ -3604,7 +3604,6 @@ void GetH1Resistances(string symbol, double &levels[], int limit, int &outCount)
 	if (idx < 0) return;
 	RefreshSRLevelsIfNeeded(symbol, idx);
 	int cnt = MathMin(limit, srCache[idx].resistancesCount);
-	ArrayResize(levels, cnt);
 	for (int i=0;i<cnt;i++) levels[i] = srCache[idx].resistances[i];
 	outCount = cnt;
 }
@@ -3615,7 +3614,6 @@ void GetH1Supports(string symbol, double &levels[], int limit, int &outCount) {
 	if (idx < 0) return;
 	RefreshSRLevelsIfNeeded(symbol, idx);
 	int cnt = MathMin(limit, srCache[idx].supportsCount);
-	ArrayResize(levels, cnt);
 	for (int i=0;i<cnt;i++) levels[i] = srCache[idx].supports[i];
 	outCount = cnt;
 }
@@ -3856,7 +3854,6 @@ void GetH4Resistances(string symbol, double &levels[], int limit, int &outCount,
 	if (idx < 0) return;
 	RefreshSRLevelsH4IfNeeded(symbol, idx);
 	int cnt = MathMin(limit, srH4Cache[idx].resistancesCount);
-	ArrayResize(levels, cnt);
 	for (int i=0;i<cnt;i++) levels[i] = srH4Cache[idx].resistances[i];
 	outCount = cnt;
 	atr_h4 = srH4Cache[idx].atr_h4;
@@ -3869,7 +3866,6 @@ void GetH4Supports(string symbol, double &levels[], int limit, int &outCount, do
 	if (idx < 0) return;
 	RefreshSRLevelsH4IfNeeded(symbol, idx);
 	int cnt = MathMin(limit, srH4Cache[idx].supportsCount);
-	ArrayResize(levels, cnt);
 	for (int i=0;i<cnt;i++) levels[i] = srH4Cache[idx].supports[i];
 	outCount = cnt;
 	atr_h4 = srH4Cache[idx].atr_h4;
