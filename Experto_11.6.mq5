@@ -358,8 +358,8 @@ datetime lastSymbolAvailabilityCheck = 0;
 
 // Helper de reintentos por ticket para cierres (EMA cross)
 static const int MAX_RETRY_SLOTS = 200;
-static ulong retryTicketIds[MAX_RETRY_SLOTS];
-static int retryCounts[MAX_RETRY_SLOTS];
+static ulong retryTicketIds[200];
+static int retryCounts[200];
 
 int FindRetrySlot(ulong ticket) {
 	for (int i = 0; i < MAX_RETRY_SLOTS; i++) {
